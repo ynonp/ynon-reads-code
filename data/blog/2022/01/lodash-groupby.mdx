@@ -1,0 +1,223 @@
+---
+title: Reading lodash#groupBy
+date: '2022-01-22'
+tags: ['lodash', 'javascript']
+draft: false
+summary: Let's see what we can learn by reading a snippet from lodash.
+---
+
+# Starting Point - The file groupBy
+
+In this post, I'll read and comment on lodash groupBy function. To follow along, I recommend you clone or browse the project's repo at https://github.com/lodash/lodash.
+
+Entering lodash's repo, we immediately notice that they put each function in a separate file. The library's `package.json` tells us that `lodash.js` is the `main` file in the repo:
+
+```json
+{
+  "name": "lodash",
+  "version": "5.0.0",
+  "license": "MIT",
+  "private": true,
+  "main": "lodash.js",
+  "engines": {
+    "node": ">=4.0.0"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "style": "eslint *.js .internal/**/*.js",
+    "test": "mocha -r esm test/*.test.js",
+    "validate": "npm run style && npm run test"
+  },
+  "devDependencies": {
+    "mocha": "^5.2.0",
+    "eslint": "^7.16.0",
+    "eslint-plugin-import": "^2.22.1",
+    "lodash": "4.17.20",
+    "esm": "^3.2.25"
+  }
+}
+```
+
+But, when searching the repository, we learn that `lodash.js` is not part of the source. The readme file tells us we can use another library called `lodash-cli` to build a production-ready lodash.js file. Let's leave that to another day as I prefer to focus on the function `groupBy`. Since the project source includes a file per lodash function, I need to find the file named `groupBy.js`:
+
+```javascript
+import baseAssignValue from './.internal/baseAssignValue.js'
+import reduce from './reduce.js'
+
+/** Used to check objects for own properties. */
+const hasOwnProperty = Object.prototype.hasOwnProperty
+
+/**
+ * Creates an object composed of keys generated from the results of running
+ * each element of `collection` thru `iteratee`. The order of grouped values
+ * is determined by the order they occur in `collection`. The corresponding
+ * value of each key is an array of elements responsible for generating the
+ * key. The iteratee is invoked with one argument: (value).
+ *
+ * @since 0.1.0
+ * @category Collection
+ * @param {Array|Object} collection The collection to iterate over.
+ * @param {Function} iteratee The iteratee to transform keys.
+ * @returns {Object} Returns the composed aggregate object.
+ * @example
+ *
+ * groupBy([6.1, 4.2, 6.3], Math.floor)
+ * // => { '4': [4.2], '6': [6.1, 6.3] }
+ */
+function groupBy(collection, iteratee) {
+  return reduce(collection, (result, value, key) => {
+    key = iteratee(value)
+    if (hasOwnProperty.call(result, key)) {
+      result[key].push(value)
+    } else {
+      baseAssignValue(result, key, [value])
+    }
+    return result
+  }, {})
+}
+
+export default groupBy
+```
+
+# Reading The Comments
+The file includes only two main comments: The larger comment block just above the function is a jsdoc from which the [documentation](https://lodash.com/docs/#groupBy) is generated. The other comment is this sole line:
+
+```javascript
+/** Used to check objects for own properties. */
+const hasOwnProperty = Object.prototype.hasOwnProperty
+```
+
+On its own, this line seems odd - We already know what `Object.prototype.hasOwnProperty` does in JavaScript, so why do they bother to write it in the comment? However, looking at a few more files in lodash, we learn that every time a global const is defined in any of the files, it will also include a comment to explain why it's there. So, for example, in the file `clone.js` we find:
+
+```javascript
+/** Used to compose bitmasks for cloning. */
+const CLONE_SYMBOLS_FLAG = 4
+```
+
+In file `conforms.js` we find:
+
+```javascript
+/** Used to compose bitmasks for cloning. */
+const CLONE_DEEP_FLAG = 1
+```
+
+And in `isArrayBuffer.js` we have:
+
+```javascript
+/* Node.js helper references. */
+const nodeIsArrayBuffer = nodeTypes && nodeTypes.isArrayBuffer
+```
+
+In short, this looks like a Best Practice in the library which is supposed to help us understand the code better. I'm not sure how effective it is judging by the actual content of the comments, but at least they're consistent.
+
+# Reading The Implementation
+Let's continue with the actual implementation, which also includes a little surprise:
+
+```javascript
+function groupBy(collection, iteratee) {
+  return reduce(collection, (result, value, key) => {
+    key = iteratee(value)
+    if (hasOwnProperty.call(result, key)) {
+      result[key].push(value)
+    } else {
+      baseAssignValue(result, key, [value])
+    }
+    return result
+  }, {})
+}
+```
+
+The basic idea of the algorithm is clear: They iterate over all the items in the list with `reduce` and then use the `result` object as an accumulator. Then, for each element, they'll calculate its `key` and use the key to store that element in the accumulator at the correct position. So each entry in `result` will have `key` as its key and an array of matching objects as its `value`. Of course, a pure usage of `reduce` would return a new accumulator from each iteration instead of mutating it, but this is JavaScript, and we do need the performance, so that makes sense.
+
+Moving from the algorithm description to the implementation code raises a few questions:
+
+1. Reduce should take a callback and call it with just two arguments: `accumulator` and `value`. What does the third argument `key` doing there?
+
+2. Why do they use `hasOwnProperty` as a global function and not call it from `result` - i.e., why not use `result.hasOwnProperty(key)`?
+
+3. What is `baseAssignValue`? Why not just use the bracket syntax to write the first value?
+
+Let's dive in-
+
+# Where did that "key" come from?
+The third parameter to reduce's callback function is called `key` but it is not used. Already in the first line of that callback, its value is changed:
+
+```javascript
+key = iteratee(value)
+```
+
+I went to their git history to see if I could figure out what's it doing there and ended up with this older version of the code:
+
+```javascript
+var groupBy = createAggregator(function(result, value, key) {
+  if (hasOwnProperty.call(result, key)) {
+    result[key].push(value);
+  } else {
+    baseAssignValue(result, key, [value]);
+  }
+});
+```
+
+It looks like in the past, they used their own function called `createAggregator`. That function did most of the work and also invoked `iteratee` on value to discover the key. However, in one of the refactoring sessions, John David Dalton (the author of lodash) decided to switch to using `reduce` and `key` must have stayed there by mistake from the old signature.
+
+# What's baseAssignValue?
+The second question we had was about the private function `baseAssignValue`. Basically, to write a new value to an object in a given key, they could have used:
+
+```javascript
+result[key] = [value];
+```
+
+Here's what they did instead:
+
+```javascript
+function baseAssignValue(object, key, value) {
+  if (key == '__proto__') {
+    Object.defineProperty(object, key, {
+      'configurable': true,
+      'enumerable': true,
+      'value': value,
+      'writable': true
+    })
+  } else {
+    object[key] = value
+  }
+}
+```
+
+Interesting! It turns out in JavaScript I can't change the field `__proto__` of an object, so if, by some strange coincidence, the key would happen to be `__proto__`, then my idea would fail. John David Dalton used `defineProperty` to overcome this restriction and allow the key `__proto__`.
+
+# And what about hasOwnProperty?
+The third question I raised earlier was about `hasOwnProperty` and why it should be defined as a global function. By this time, I hope you can see why: The string `hasOwnProperty` itself can be one of the keys. If that would be the case, then `result.hasOwnProperty` would return the value for that key instead of the actual function `Object.prototype.hasOwnProperty` (from its prototype).
+
+This takes me back to the comment line we saw at the beginning of the file. I now realize it would have been much more helpful describing this use case, i.e., something like:
+
+```javascript
+/** Saving hasOwnProperty in a global variable allows us to call it even if one of the value's key will be the string "hasOwnProperty" */
+const hasOwnProperty = Object.prototype.hasOwnProperty
+```
+
+# P.S. what happened to all the semicolons?
+Reading this review you might have noticed a style difference between the old version of lodash and the new one. Here's a line from the old version:
+
+```javascript
+result[key].push(value);
+```
+
+And the same line from the new version:
+
+```javascript
+result[key].push(value)
+```
+
+Do you see the difference? The semicolon is gone! Git history tells us this is not a coincidence:
+
+```text
+commit 6cb3460fcefe66cb96e55b82c6febd2153c992cc
+Author: John-David Dalton <john.david.dalton@gmail.com>
+Date:   Sat Feb 4 23:50:10 2017 -0800
+
+    Remove semicolons.
+```
+
+In February 2017, John David Dalton decided semicolons are not a good idea in JavaScript and removed them all. Now the semicolon debate is not new - already in 2012, there was a considerable debate whether to use them or not, a debate that still continues today. For example, if you build a new react project with `create-react-app` you'll find a semicolon at the end of every expression, but if you create a new project with `vite` no semicolons will be used. Lodash takes the anti-semicolon side, and that's ok even though my personal preference is different.
+
