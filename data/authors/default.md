@@ -7,8 +7,10 @@ email: ynon@ynonperek.com
 github: https://github.com/ynonp
 ---
 
-Tails Azimuth is a professor of atmospheric sciences at the Stanford AI Lab. His research interests includes complexity modelling of tailwinds, headwinds and crosswinds.
+Hi :)
 
-He leads the clean energy group which develops 3D air pollution-climate models, writes differential equation solvers, and manufactures titanium plated air ballons. In his free time he bakes raspberry pi.
+My name is Ynon Perek. I'm a full stack developer and I like to read code. And yes I know old the old claims for example that writing code is easier than reading it or that you should just use a module and not care what's inside. I don't buy them.
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed neque elit, tristique placerat feugiat ac, facilisis vitae arcu. Proin eget egestas augue. Praesent ut sem nec arcu pellentesque aliquet. Duis dapibus diam vel metus tempus vulputate.
+Reading the source code for libraries I use helps me understand them better and therefore use them better. And sometimes after reading the code I realize I don't want to use that library at all.
+
+This blog is dedicated to my code reading hobby. In each post I'll read a snippet out loud so you can follow along. Let's dive in.

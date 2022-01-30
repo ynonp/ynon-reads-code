@@ -1,0 +1,198 @@
+---
+title: Reading leftpad
+date: '2022-01-29'
+tags: ['leftpad', 'javascript']
+draft: false
+---
+
+# Intro
+In March 2016, A software developer named Azer Ko√ßulu broke the internet when he unpublished some of his modules from npm. The most famous of which is called `left-pad`, and its removal led the admins of npm to re-publish a removed module for the first time. What made left-pad special was the sheer volume of packages using it as a dependency - which meant that once it was removed, all those packages would fail to install. Hundreds of thousands of developers worldwide were not able to run `npm install` and build their projects.
+
+In this post, I'll dive with you into left-pad code to understand what made it so attractive and how it changed over the years.
+
+# The Unpublished Version
+We'll work on the repo [https://github.com/left-pad/left-pad](https://github.com/left-pad/left-pad), and as you can easily notice upon visiting its readme file, the module is deprecated and no longer recommended for use. It was replaced by the built-in function `String.prototype.padStart` as part of ES2017, a bit over a year after the affair. Proposal drafts for this feature were written as [early as 2015](https://github.com/tc39/proposal-string-pad-start-end/tree/b6eef57480a518dacdc2bc9ac882a5744b5540f1), so I doubt there's a connection between the two.
+
+Browsing the project's history leads us to commit [76979f0](https://github.com/left-pad/left-pad/commit/76979f0a50877c50afd817923acf6f224bba3d36) with the wonderful commit message:
+
+> Update README.md
+
+Reading that update, we'll find:
+
+```sh
+$ git log -p 76979f0
+
+-String left pad
++String left pad.
++
++P.S: [I've unpublished it from NPM.](https://medium.com/@azerbike/i-ve-just-liberated-my-modules-9045c06be67c#.b6xzn8r6w)
+```
+
+The more interesting file in this commit is actually `index.js`, which contains the code of left-pad at the moment of removal. Here's the implementation:
+
+```javascript
+module.exports = leftpad;
+
+function leftpad (str, len, ch) {
+  str = String(str);
+
+  var i = -1;
+
+  if (!ch && ch !== 0) ch = ' ';
+
+  len = len - str.length;
+
+  while (++i < len) {
+    str = ch + str;
+  }
+
+  return str;
+}
+```
+
+To be honest, I was kind of disappointed. All the code does is calculate the number of padding characters required and then uses a simple while loop to prefix the string with the padding. I assume most users of this code believed that it had some special "secret" algorithm to provide better performance; otherwise, I can't see a reason to use a module instead of implementing it on your own.
+
+# Left Pad Today
+That "secret" algorithm actually exists and was added to left-pad a while after it was removed (and re-published) from npm. The rebirth of left-pad began in commit [b1f166e](https://github.com/left-pad/left-pad/commit/b1f166e3a9df92c732d816eaefa13770b7344eaf) when Cameron Westland took over maintaining it.
+
+Shortly after, Hao Chen suggested a highly efficient algorithm making left-pad worth your time. Here's what the code looks like today:
+
+```javascript
+'use strict';
+module.exports = leftPad;
+
+var cache = [
+  '',
+  ' ',
+  '  ',
+  '   ',
+  '    ',
+  '     ',
+  '      ',
+  '       ',
+  '        ',
+  '         '
+];
+
+function leftPad (str, len, ch) {
+  // convert `str` to a `string`
+  str = str + '';
+  // `len` is the `pad`'s length now
+  len = len - str.length;
+  // doesn't need to pad
+  if (len <= 0) return str;
+  // `ch` defaults to `' '`
+  if (!ch && ch !== 0) ch = ' ';
+  // convert `ch` to a `string` cuz it could be a number
+  ch = ch + '';
+  // cache common use cases
+  if (ch === ' ' && len < 10) return cache[len] + str;
+  // `pad` starts with an empty string
+  var pad = '';
+  // loop
+  while (true) {
+    // add `ch` to `pad` if `len` is odd
+    if (len & 1) pad += ch;
+    // divide `len` by 2, ditch the remainder
+    len >>= 1;
+    // "double" the `ch` so this operation count grows logarithmically on `len`
+    // each time `ch` is "doubled", the `len` would need to be "doubled" too
+    // similar to finding a value in binary search tree, hence O(log(n))
+    if (len) ch += ch;
+    // `len` is 0, exit the loop
+    else break;
+  }
+  // pad `str`!
+  return pad + str;
+}
+```
+
+Now, to be honest, I doubt the cache saves anything because it only caches really small inputs. It does give the code a nice touch, though.
+
+More interesting is the new algorithm. Here's its main part minus the comments:
+
+```javascript
+while (true) {
+  if (len & 1) pad += ch;
+
+  len >>= 1;
+
+  if (len) {
+    ch += ch;
+  } else {
+    break;
+  }
+}
+// pad `str`!
+return pad + str;
+```
+
+So if we think about our challenge for a moment, we really want to create a string in length `len` composed of the character `ch` (space by default, but can be anything really). In the naive version, we just used a for loop, which took `len` iterations. This new algorithm brings a very interesting optimization: We know that every number can be represented by a sum of powers of 2 - that's just its binary representation. So for example the number 8 is 2^3, the number 20 is 2^4 + 2^2 and the number 73 is 64 + 8 + 1, which is 2^6 + 2^3 + 2^0.
+
+If Instead of adding just one space in each iteration, we'll add the padding string to itself, we can create this sequence of spaces which is again the powers of 2:
+
+```text
+" "
+"  "
+"    "
+"        "
+"                "
+```
+
+And now the magic of the optimization:
+
+1. Every iteration, we double the length of the padding string by calling `ch += ch;`
+
+2. In order to find which powers of 2 we need to use, we'll divide len by 2 in every iteration and only use the values for which the result is odd.
+
+Let's try it with length = 20 to see that it works:
+
+1. In the first iteration, `len` is 20, `ch` is a single space and `pad` is empty. We divide len by 2 to receive 10. Since 10 > 0, we double the length of `ch` and continue to the next iteration.
+
+2. In the second iteration, `len` is 10, `ch` is now two spaces, and `pad` is still empty. `len` is still even, so we divide it by two and continue.
+
+3. In the third iteration, `len` is 5. This is the first time it has an odd value, so we take `ch` (which now already has four spaces) and add it to `pad`, which up until now was empty. At the end of this iteration, `len` will be 2, `ch` will have eight spaces and `pad` will have four spaces.
+
+4. In the fourth iteration, `len` is even, so we'll divide it by two and get 1. Even after the division, it's still larger than 0, so we double the length of `ch` to react 16 and continue.
+
+5. In the fifth iteration, `len` has a length of 1 - odd once again. We add the 16 spaces of `ch` to `pad`, bringing `pad` to the required length of 20. Dividing len by two yields 0 this time, which means the continuation condition is not met, and we're out of the loop.
+
+All in all, to create a padding string of length 20, we used five iterations instead of twenty. That's huge and, in large numbers, yields a significant improvement.
+
+# About that `ch` argument
+Before we part let's spend a moment with the `ch` argument and its default value. Look at this line:
+
+```javascript
+if (!ch && ch !== 0) ch = ' ';
+```
+
+In modern JavaScript, we would simply define the default value in the function's signature by adding an equal sign after the argument name. In older versions of JavaScript, that was not possible, so instead, developers had to check if they got a value into the function and, if not,  assign the default value.
+
+The above rather complicated condition is actually pretty smart and is there to handle a specific use case. Let's see how it got there. Using git blame, I can find the check was added in commit number `0e04eb4d` with the wonderful commit message:
+
+> make the third argument work
+
+What does it mean to "make the third argument work"? And how does it relate to this condition?
+
+Using `git show` I learned that in older versions, the line was:
+
+```javascript
+ch || (ch = ' ');
+```
+
+Do you see the problem? If not you'll be happy to know that Steve Mao, who created this commit, also added a test case to show where the previous code fails:
+
+```javascript
+assert.strictEqual(leftpad(1, 2, 0), '01');
+```
+
+Now I see it! Passing 0 to `ch` previously would use the default value instead, because in JavaScript 0 is condifered false. The change to:
+
+```javascript
+if (!ch && ch !== 0) ch = ' ';
+```
+
+Is there to allow users of the function to pass the number 0 as the padding value.
+
+All in all, the most recent version of left-pad turned out to be a well-maintained, well-tested, and interesting function - even if nobody will use it again since browsers now provide that functionality out of the box.
+

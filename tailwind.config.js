@@ -16,7 +16,8 @@ module.exports = {
         14: '3.5rem',
       },
       fontFamily: {
-        sans: ['Inter', ...defaultTheme.fontFamily.sans],
+        sans: [...defaultTheme.fontFamily.sans],
+        serif: ['Aleo', ...defaultTheme.fontFamily.serif],
       },
       colors: {
         primary: colors.teal,
