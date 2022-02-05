@@ -1,0 +1,475 @@
+---
+title: Reading Axios
+date: '2022-02-05'
+tags: ['axios', 'javascript']
+draft: false
+---
+
+# Intro
+[axios](https://github.com/axios/axios) began as a side project by [Matt Zabriskie](http://www.mattzabriskie.com/). In matt's blog, he tells how [axios came to be](http://www.mattzabriskie.com/blog/axios-help-wanted), basically as an evening project aiming to build an HTTP client for React. He quickly realized the resulting library had no special strings attaching it to React and axios became a generic networking library for browsers and Node.JS.
+
+These days matt's working at Apple and axios is maintained by [Jason Saayman](https://www.linkedin.com/in/jason-saayman-75154659/?originalSubdomain=za). Axios is accepting code contributions from developers worldwide and has a bit over 24 million weekly downloads.
+
+In this post, we'll read the main parts of axios architecture, and I'll suggest a few code contribution ideas you can use.
+
+<TOCInline toc={props.toc} exclude="Intro" />
+
+# Directory Structure
+The source code for the library itself is placed in `lib` folder, but before we dive into it, let's examine what other directories are available:
+
+1. The first folder that pops into view is `test`. I like projects with tests because tests usually give us more information about the code than just the documentation. In addition, they help us verify we don't break anything when writing contributions.
+
+2. In axios, in addition to the same old `test` folder, we also have a folder named `sandbox` AND a folder called `examples`. It feels like someone went a long way in helping potential contributors feel at home - and that's a good sign.
+
+3. Having `dist` folder in the source control is a little disturbing. I would have preferred if they left that in .gitignore and just gave me a working build script. However, since they do provide a build script, I don't see the point in saving the build result to git. One potential difficulty with saving `dist` in git is that you always need to keep the contents of dist folder up to date. We'll soon see that in axios this is not the case.
+
+4. There's also a hidden folder named `.github` that contains files needed for the interaction with github. It includes a template for new issues and a github actions YAML file (`.github/workflows/ci.yml`) to run the tests.
+
+Now that we have some understanding of the project structure, our next step is to try to build the project and run its tests. I want to verify that all tests pass and the build result is identical to what we have in `dist` folder.
+
+In a new shell in the project's folder, I type:
+
+```sh
+$ npm install
+```
+
+And then I open `package.json` to search for interesting scripts:
+
+```javascript
+"scripts": {
+  "test": "grunt test && dtslint",
+  "start": "node ./sandbox/server.js",
+  "build": "NODE_ENV=production grunt build",
+  "preversion": "grunt version && npm test",
+  "version": "npm run build && git add -A dist && git add CHANGELOG.md bower.json package.json",
+  "postversion": "git push && git push --tags",
+  "examples": "node ./examples/server.js",
+  "coveralls": "cat coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js",
+  "fix": "eslint --fix lib/**/*.js"
+},
+```
+
+So far, so good. Let's continue to run the tests:
+
+```sh
+$ npm run test
+```
+
+If you follow along on your machine you can notice that the command runs two types of tests. In the first block of output, I see mocha tests running inside node.js, and in the second block, I see karma tests running in browsers. Karma even writes out which browsers it used:
+
+```text
+28 01 2022 10:34:29.443:INFO [karma-server]: Karma v6.3.11 server started at http://localhost:9876/
+28 01 2022 10:34:29.444:INFO [launcher]: Launching browsers FirefoxHeadless, ChromeHeadless with concurrency unlimited
+```
+
+Now they have two types of tests and two different tools running them. Let's open the `Grunfile` to figure out what goes where. The interesting block from `Gruntfile` is:
+
+```text
+   karma: {
+      options: {
+        configFile: 'karma.conf.js'
+      },
+      single: {
+        singleRun: true
+      },
+      continuous: {
+        singleRun: false
+      }
+    },
+
+    mochaTest: {
+      test: {
+        src: ['test/unit/**/*.js']
+      },
+      options: {
+        timeout: 30000
+      }
+    },
+```
+
+And this teaches us that everything within `test/unit` is a unit test executed with mocha in a node.js process. As for karma, we'll need to open `karma.conf.js` and there I'll find:
+
+```javascript
+preprocessors: {
+  'test/specs/__helpers.js': ['webpack', 'sourcemap'],
+  'test/specs/**/*.spec.js': ['webpack', 'sourcemap']
+},
+```
+
+Which tells me that all tests in `test/specs` folder are browser unit tests that are executed by karma.
+
+Now let's build the project and check if `dist` folder in github is indeed up to date:
+
+```sh
+$ npm run build
+
+
+
+> axios@0.25.0 build
+> NODE_ENV=production grunt build
+
+Running "clean:dist" (clean) task
+>> 5 paths cleaned.
+
+Running "webpack" task
+Hash: d004b5ae618258baef57
+Version: webpack 4.46.0 / grunt-webpack 4.0.3
+Time: 275ms
+Built at: 01/28/2022 10:40:45 AM
+    Asset      Size  Chunks                   Chunk Names
+ axios.js  62.3 KiB    main  [emitted]        main
+axios.map  67.6 KiB    main  [emitted] [dev]  main
+Entrypoint main = axios.js axios.map
+[./index.js] 40 bytes {main} [built]
+[./lib/adapters/xhr.js] 6.79 KiB {main} [built]
+[./lib/axios.js] 1.52 KiB {main} [built]
+[./lib/cancel/Cancel.js] 385 bytes {main} [built]
+[./lib/cancel/CancelToken.js] 2.41 KiB {main} [built]
+[./lib/cancel/isCancel.js] 102 bytes {main} [built]
+[./lib/core/Axios.js] 4.14 KiB {main} [built]
+[./lib/core/InterceptorManager.js] 1.33 KiB {main} [built]
+[./lib/core/mergeConfig.js] 3.12 KiB {main} [built]
+[./lib/defaults.js] 3.5 KiB {main} [built]
+[./lib/env/data.js] 43 bytes {main} [built]
+[./lib/helpers/bind.js] 256 bytes {main} [built]
+[./lib/helpers/isAxiosError.js] 373 bytes {main} [built]
+[./lib/helpers/spread.js] 564 bytes {main} [built]
+[./lib/utils.js] 8.65 KiB {main} [built]
+    + 14 hidden modules
+Hash: 298941b4c4e5b7c2fd49
+Version: webpack 4.46.0 / grunt-webpack 4.0.3
+Time: 196ms
+Built at: 01/28/2022 10:40:45 AM
+        Asset      Size  Chunks                   Chunk Names
+ axios.min.js  17.3 KiB       0  [emitted]        main
+axios.min.map  79.3 KiB       0  [emitted] [dev]  main
+Entrypoint main = axios.min.js axios.min.map
+ [0] ./lib/utils.js 8.65 KiB {0} [built]
+ [1] ./lib/defaults.js 3.5 KiB {0} [built]
+ [2] ./lib/cancel/Cancel.js 385 bytes {0} [built]
+ [3] ./lib/helpers/bind.js 256 bytes {0} [built]
+ [4] ./lib/helpers/buildURL.js 1.61 KiB {0} [built]
+ [5] ./lib/core/enhanceError.js 1.11 KiB {0} [built]
+ [8] ./lib/cancel/isCancel.js 102 bytes {0} [built]
+ [9] ./lib/core/mergeConfig.js 3.12 KiB {0} [built]
+[10] ./lib/env/data.js 43 bytes {0} [built]
+[11] ./index.js 40 bytes {0} [built]
+[12] ./lib/axios.js 1.52 KiB {0} [built]
+[13] ./lib/core/Axios.js 4.14 KiB {0} [built]
+[26] ./lib/cancel/CancelToken.js 2.41 KiB {0} [built]
+[27] ./lib/helpers/spread.js 564 bytes {0} [built]
+[28] ./lib/helpers/isAxiosError.js 373 bytes {0} [built]
+    + 14 hidden modules
+
+Done.
+```
+
+It looks like it worked. Now compare this to what's stored in git:
+
+```sh
+PAGER=cat git diff --name-only -- dist
+dist/axios.js
+dist/axios.map
+dist/axios.min.js
+dist/axios.min.map
+```
+
+And we have our first problem: `dist` folder in the repo is different than the files I would get from building the project. This does not mean there's anything wrong with the code, only that the minified version you get from npm when you do `npm install` is not identical to the minified version you would get from building the source.
+
+# Mocha Tests
+Moving on to the tests folders and the first one I wish to open is `test/unit`. I already know these are mocha tests running inside node.js. There are several test files, but the longest (and so the most interesting) one is `unit/adapters/http.js` - A file containing over 1,000 lines of test code. Here's one small snippet from it:
+
+```javascript
+it('should allow passing JSON', function (done) {
+  var data = {
+    firstName: 'Fred',
+    lastName: 'Flintstone',
+    emailAddr: 'fred@example.com'
+  };
+
+  server = http.createServer(function (req, res) {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(data));
+  }).listen(4444, function () {
+    axios.get('http://localhost:4444/').then(function (res) {
+      assert.deepEqual(res.data, data);
+      done();
+    });
+  });
+});
+```
+
+I really liked the "to the point" code style in the test - you create an object, open a server to return that object with "content-type" being `application/json` and then you verify that axios really accesses the server and parses the result. Because these are mocha server side tests, it's straightforward to set up a fake server just for testing. In the browser they'll have to work a bit harder to get the same result.
+
+# Karma Tests
+The second tests folder, `specs`, is also the larger, and it looks like most of the testing efforts were invested here. There are all sorts of tests; for example the file `test/specs/core/buildFullPath.spec.js` tests one pure function named `buildFullPath`:
+
+```javascript
+var buildFullPath = require('../../../lib/core/buildFullPath');
+
+describe('helpers::buildFullPath', function () {
+  it('should combine URLs when the requestedURL is relative', function () {
+    expect(buildFullPath('https://api.github.com', '/users')).toBe('https://api.github.com/users');
+  });
+
+  it('should return the requestedURL when it is absolute', function () {
+    expect(buildFullPath('https://api.github.com', 'https://api.example.com/users')).toBe('https://api.example.com/users');
+  });
+
+  it('should not combine URLs when the baseURL is not configured', function () {
+    expect(buildFullPath(undefined, '/users')).toBe('/users');
+  });
+
+  it('should combine URLs when the baseURL and requestedURL are relative', function () {
+    expect(buildFullPath('/api', '/users')).toBe('/api/users');
+  });
+});
+```
+
+When you get to the actual network test, the test uses mock objects to simulate network calls and verify only the client-side code. Here we see they use `jasmine` to mock the ajax calls:
+
+```javascript
+beforeEach(function () {
+  jasmine.Ajax.install();
+});
+
+afterEach(function () {
+  jasmine.Ajax.uninstall();
+});
+
+it('should make an http request with url instead of baseURL', function (done) {
+  var instance = axios.create({
+    url: 'https://api.example.com'
+  });
+
+  instance('/foo');
+
+  getAjaxRequest().then(function (request) {
+    expect(request.url).toBe('/foo');
+    done();
+  });
+});
+```
+
+When testing both server-side and client-side, a library such as [msw](https://mswjs.io/) might yield nicer results, as it allows to use the same mocking mechanism for both server and client - and so we can run the same tests on both sides.
+
+Now would be a good time to look into `lib` folder. Note how similar the source and test folders are. Both contain the subdirectories `cancel`, `core`, and `helpers`; And as for the files, the similarity is there. For example, the file `test/specs/defaults.spec.js` probably tests the code written in the file `lib/defaults.js`. The match is not one-to-one, and there are many tests without a corresponding source file and vice versa.
+
+The ability to change code and then run the tests to verify that we didn't break anything is critical in an open-source project that wants to get contributions from developers all over the world. In axios, the tests help me feel more confident before submitting an actual pull request.
+
+# How Axios Sends HTTP Requests
+We know enough about the project structure and are ready to step into the actual source code in `lib` folder. When reading the code for a large library, I like to start with a question, select one thing I know the code does and check how it does it. In searching for the answer, I usually learn a lot about the code, come up with more questions, and then continue in a loop.
+
+My first question is "How does axios send HTTP requests?", what is the code path leading from me writing:
+
+```javascript
+async function getUser() {
+  try {
+    const response = await axios.get('/user?ID=12345');
+    console.log(response);
+  } catch (error) {
+    console.error(error);
+  }
+}
+```
+
+To the actual `fetch` or `XMLHttpRequest` call in the browser.
+
+In package.json, I can see the main file for this library is called `index.js`. In `index.js` I find a single line:
+
+```javascript
+module.exports = require('./lib/axios');
+```
+
+Continuing to `lib/axios` I find the line:
+
+```javascript
+var Axios = require('./core/Axios');
+
+// some more code...
+// and then
+axios.Axios = Axios;
+```
+
+So I'll continue into `core/Axios.js` which defines the class `Axios`. This is the first interesting file in our journy as it contains almost 150 lines of code. Its main function is called `request`. It's a bit long, so I'll paste here just the snippet from it dealing with sending a request:
+
+```javascript
+var chain = [dispatchRequest, undefined];
+
+Array.prototype.unshift.apply(chain, requestInterceptorChain);
+chain = chain.concat(responseInterceptorChain);
+
+promise = Promise.resolve(config);
+while (chain.length) {
+  promise = promise.then(chain.shift(), chain.shift());
+}
+
+return promise;
+```
+
+So the first 3 lines are a bit confusing when they prepare an array named chain (and one day in a future post it will be interesting to return and read them more carefully), but the important bit is the function `dispatchRequest`. This function is defined in yet another file named `dispatchRequest.js`, so let's move there:
+
+```javascript
+var adapter = config.adapter || defaults.adapter;
+
+return adapter(config).then(function onAdapterResolution(response) {
+  throwIfCancellationRequested(config);
+
+  // Transform response data
+  response.data = transformData.call(
+    config,
+    response.data,
+    response.headers,
+    config.transformResponse
+  );
+
+  return response;
+}, function onAdapterRejection(reason) {
+```
+
+And ... Bingo! To send a request, we invoke a function named `adapter`, pass the request details, and in return get a `response` object that will continue to transform before being returned to the invoking code. The transformations are probably the JSON parsing code, but who is adapter?
+
+Because adapter is defined on config and not explicitly required, I'll need to be more creative in my searches. Let's search all files in the directory for this text:
+
+```sh
+ ~/tmp/axios/lib ‚ï± master !5 ÓÇ∞ ack -l adapter
+core/README.md
+core/dispatchRequest.js
+core/mergeConfig.js
+adapters/README.md
+defaults.js
+```
+
+And after quickly browsing each one I land in the file `defaults.js` and there to the function:
+
+```javascript
+function getDefaultAdapter() {
+  var adapter;
+  if (typeof XMLHttpRequest !== 'undefined') {
+    // For browsers use XHR adapter
+    adapter = require('./adapters/xhr');
+  } else if (typeof process !== 'undefined' && Object.prototype.toString.call(process) === '[object process]') {
+    // For node use HTTP adapter
+    adapter = require('./adapters/http');
+  }
+  return adapter;
+}
+```
+
+Now I get it: Axios checks if I'm in a browser (if I have XMLHttpRequest global name), and if the answer is yes, it will dynamically require `adapters/xhr`. On the other hand, if I'm not in a browser, it will dynamically require `adapters/http`.
+
+Things start to fall into place.
+
+The dynamic `require` makes sure we don't include node.js code in the browser dist. The test file we read earlier, `test/unit/adapters/http` corresponds to the file `lib/adapters/http` and was executed in a node.js app because that adapter uses node.js for networking. The other adapter does not have a corresponding test file, but if it had, it would be located somewhere in `test/spec`, because it should run in a browser.
+
+# Axios Adapters
+The next and last stop in answering the "How does axios perform HTTP calls?" question is the file `lib/adapters/xhr.js`. And there are no big surprises there. At the beginning of the file, we'll find:
+
+```javascript
+var request = new XMLHttpRequest();
+```
+
+Followed by filling all the properties of `request` until it ends with:
+
+```javascript
+request.send(requestData);
+```
+
+The one thing worth mentioning about the architectural choice of using adapters is the code duplication between the two adapters, and the (potential) future adapters. Here's a snippet from `xhr.js` that deals with canceling a request:
+
+```javascript
+if (config.cancelToken || config.signal) {
+  // Handle cancellation
+  // eslint-disable-next-line func-names
+  onCanceled = function(cancel) {
+    if (!request) {
+      return;
+    }
+    reject(!cancel || (cancel && cancel.type) ? new Cancel('canceled') : cancel);
+    request.abort();
+    request = null;
+  };
+
+  config.cancelToken && config.cancelToken.subscribe(onCanceled);
+  if (config.signal) {
+    config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);
+  }
+}
+```
+
+And this almost identical snippet from `adapters/http.js` that deals with canceling a request in the node.js adapter:
+
+```javascript
+if (config.cancelToken || config.signal) {
+  // Handle cancellation
+  // eslint-disable-next-line func-names
+  onCanceled = function(cancel) {
+    if (req.aborted) return;
+
+    req.abort();
+    reject(!cancel || (cancel && cancel.type) ? new Cancel('canceled') : cancel);
+  };
+
+  config.cancelToken && config.cancelToken.subscribe(onCanceled);
+  if (config.signal) {
+    config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);
+  }
+}
+```
+
+Refactoring the code in the adapters and extracting the common functionality to a new file might have saved a few lines of code and made life easier for developers wanting to add new adapters in the future.
+
+# Examples Directory
+The following two directories are no longer standard in open source projects. The folder `examples` includes a file named `server.js`, which, when executed, creates a server that can serve six different examples - from 6 subdirectories of `examples`. Each example tells something about how to use axios. For example, the file `examples/get/index.html` shows us how to use axios to get a list of items from a server and inject it into the DOM:
+
+```markup
+<!doctype html>
+<html>
+  <head>
+    <title>axios - get example</title>
+    <link rel="stylesheet" type="text/css" href="//maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"/>
+  </head>
+  <body class="container">
+    <h1>axios.get</h1>
+    <ul id="people" class="list-unstyled"></ul>
+
+    <script src="/axios.min.js"></script>
+    <script>
+      axios.get('/get/server')
+        .then(function (response) {
+          document.getElementById('people').innerHTML = response.data.map(function (person) {
+            return (
+              '<li class="row">' +
+                '<img src="https://avatars.githubusercontent.com/u/' + person.avatar + '?s=50" class="col-md-1"/>' +
+                '<div class="col-md-3">' +
+                  '<strong>' + person.name + '</strong>' +
+                  '<div>Github: <a href="https://github.com/' + person.github + '" target="_blank">' + person.github + '</a></div>' +
+                  '<div>Twitter: <a href="https://twitter.com/' + person.twitter + '" target="_blank">' + person.twitter + '</a></div>' +
+                '</div>' +
+              '</li><br/>'
+            );
+          }).join('');
+        })
+        .catch(function (err) {
+          document.getElementById('people').innerHTML = '<li class="text-danger">' + err.message + '</li>';
+        });
+    </script>
+  </body>
+</html>
+```
+
+However, reading that code today feels a little weird. Almost any frontend developer I can imagine will either use a framework to populate that DOM structure or already knows how to do it even without this example. Yes, I can see why this example was useful in 2015, but I don't see a reason to keep it in the repo in 2020.
+
+Sandbox folder is similar and includes a single HTML file and a server that serves it from localhost to allow some sort of a playground that you can try the library from within your browser. However, with sites like codesandbox, this too feels unnucessary.
+
+# Code Contribution Ideas
+If you've read this far, you already know a thing or two about axios and its main code structure. I'd like to end this review by suggesting some ways in which you can contribute to axios, either to improve the library or to improve your own knowledge and coding skills:
+
+The first point is the adapters. Axios currently has two adapters: one for node.js and another one for browsers using XMLHttpRequest. However, in 2022, most browsers support fetch API that provides functionality beyond xhr. One specific example where fetch adapter would be helpful is [Issue 1227](https://github.com/axios/axios/issues/1227) - which complains that browsers don't support axios' maxRedirects settings. Well, of course they don't because XMLHttpRequest will follow redirects automatically. However, with fetch, you don't have to follow redirects automatically, so it's possible to implement support for maxRedirects.
+
+A second idea still in the land of adapters is to improve testing. At the moment, the xhr adapter doesn't have any tests. I assume that's because most ajax code is mocked, so there is no point in testing it. The library [MSW](https://mswjs.io/) lets us build a test HTTP server inside the browser using service workers. Using MSW, we can create adapter tests that will work in both node.js AND the browser and have one set of adapter tests that will test all of the adapters.
+
+The third point regarding adapters is the code duplication between them. We saw how canceling a request repeats the same logic in `http` and `xhr` adapters. One can refactor the code and extract the common functionality, making writing new adapters easier.
+
+With this, I'll finish my quick tour of axios code. Reading axios code I learned a lot about the relationship between source code and tests. I'll undoubtedly return to axios in the future to dive into more specific mechanisms.
+
